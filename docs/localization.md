@@ -1,7 +1,7 @@
 # Interface languages
 
 Choose **Edit → Interface Language** and select **Auto (system language)**, **English**,
-**Українська**, **Português (Brasil)**, **Deutsch**, **Español**, **Čeština** (Czech), **Русский**, **Français**, **简体中文**, **Italiano**, **한국어** (Korean), **Svenska** (Swedish), **العربية** (Arabic), **Magyar** (Hungarian), **Türkçe** (Turkish), or **Ελληνικά** (Greek).
+**Українська**, **Português (Brasil)**, **Deutsch**, **Español**, **Čeština** (Czech), **Русский**, **Français**, **简体中文**, **Italiano**, **한국어** (Korean), **Svenska** (Swedish), **العربية** (Arabic), **Magyar** (Hungarian), **Türkçe** (Turkish), **עברית** (Hebrew), or **Ελληνικά** (Greek).
 The interface updates without restarting, including the native macOS menus.
 The choice is saved with the other interface preferences (`cadcraft.prefs`, beside the theme):
 eframe storage on the desktop, browser local storage on the web. Installations without a saved
@@ -154,3 +154,12 @@ The implementation follows the display-time catalog pattern used by
 
 Translations are original work under `MIT OR Apache-2.0`, written from the meaning of
 CADCraft's English strings. Do not copy proprietary localization resources.
+
+## Hebrew
+
+Hebrew (`he`) covers the union of the existing catalogs. egui lays text out left to right without a
+bidi pass, so the Hebrew catalog is served in display order: each translation (and each plural
+form) goes through `cadcraft_fonts::bidi::visual_order` once when the catalog loads. Hebrew needs no
+letter joining, so reordering alone shows it correctly; Latin runs inside a label (DWG, PDF, Ctrl)
+stay left to right. The shell layout itself stays left to right. Windows' Segoe UI and Linux's
+DejaVu Sans carry the Hebrew letters. Plurals: one (1), other.

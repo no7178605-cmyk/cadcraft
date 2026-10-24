@@ -45,10 +45,12 @@ pub enum Preference {
     Hungarian,
     #[serde(rename = "tr")]
     Turkish,
+    #[serde(rename = "he")]
+    Hebrew,
 }
 
 impl Preference {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Auto,
         Self::English,
         Self::Greek,
@@ -66,6 +68,7 @@ impl Preference {
         Self::Arabic,
         Self::Hungarian,
         Self::Turkish,
+        Self::Hebrew,
     ];
 
     /// Every preference in the order the Interface Language dialog lists them: Auto, then English
@@ -113,6 +116,7 @@ impl Preference {
             Self::Arabic => "ar",
             Self::Hungarian => "hu",
             Self::Turkish => "tr",
+            Self::Hebrew => "he",
         }
     }
 
@@ -141,6 +145,7 @@ impl Preference {
             Self::Arabic => "العربية",
             Self::Hungarian => "Magyar",
             Self::Turkish => "Türkçe",
+            Self::Hebrew => display("he", "עברית"),
         }
     }
 
@@ -171,6 +176,7 @@ impl Preference {
             Self::Arabic => "ar",
             Self::Hungarian => "hu",
             Self::Turkish => "tr",
+            Self::Hebrew => "he",
             Self::Auto => locales.iter().find_map(|s| locale_language(s)).unwrap_or("en"),
         }
     }
@@ -187,7 +193,7 @@ pub struct Language {
     catalog: OnceLock<Catalog<'static>>,
 }
 
-pub static LANGUAGES: [Language; 16] = [
+pub static LANGUAGES: [Language; 17] = [
     Language { code: "en", name: "English", source: "", plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
     // Greek: one for exactly 1; other for zero and all other integer counts.
     Language { code: "el", name: "Ελληνικά", source: include_str!("el.tsv"), plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
@@ -228,7 +234,67 @@ pub static LANGUAGES: [Language; 16] = [
     Language { code: "hu", name: "Magyar", source: include_str!("hu.tsv"), plural: plural_ko, plural_forms: 1, catalog: OnceLock::new() },
     // Turkish keeps a noun singular after a number ("3 commit"), so like Korean it has one form.
     Language { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), plural: plural_ko, plural_forms: 1, catalog: OnceLock::new() },
+    // עברית (Hebrew) is right-to-left. egui lays text out left to right with no bidi pass, so the
+    // catalog is served in display order (`cadcraft_fonts::bidi::visual_order`); Hebrew needs no
+    // joining, so reordering alone shows it correctly. Integer plurals: one (1), other.
+    Language { code: "he", name: "עברית", source: include_str!("he.tsv"), plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
 ];
+
+/// Languages whose catalog is served in display (visual) order because egui has no bidi pass.
+const VISUAL_ORDER: &[&str] = &["he"];
+
+/// The display form of right-to-left text for egui: `text` reordered for display when it holds
+/// right-to-left characters, else unchanged.
+pub fn for_display(text: &str) -> std::borrow::Cow<'_, str> {
+    if cadcraft_fonts::bidi::has_rtl(text) {
+        std::borrow::Cow::Owned(cadcraft_fonts::bidi::visual_order(text))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
+/// A fixed name in display order, computed once (language picker labels).
+fn display(code: &'static str, name: &'static str) -> &'static str {
+    static NAMES: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| LANGUAGES.iter().map(|l| (l.code, for_display(l.name).into_owned())).collect())
+        .get(code)
+        .map_or(name, String::as_str)
+}
+
+/// A catalog in display order: each translation (and each `|` plural form on its own) reordered,
+/// keys untouched. Built once per language from its logical-order source.
+fn visual_source(code: &str) -> &'static str {
+    static SOURCES: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
+    SOURCES
+        .get_or_init(|| {
+            LANGUAGES
+                .iter()
+                .filter(|l| VISUAL_ORDER.contains(&l.code))
+                .map(|l| {
+                    let mut out = String::with_capacity(l.source.len());
+                    for line in l.source.lines() {
+                        let columns: Vec<&str> = line.split('\t').collect();
+                        match columns.as_slice() {
+                            [context, key, value] if !line.starts_with('#') => {
+                                let forms: Vec<String> = value.split('|').map(|f| for_display(f).into_owned()).collect();
+                                out.push_str(context);
+                                out.push('\t');
+                                out.push_str(key);
+                                out.push('\t');
+                                out.push_str(&forms.join("|"));
+                            }
+                            _ => out.push_str(line),
+                        }
+                        out.push('\n');
+                    }
+                    (l.code, out)
+                })
+                .collect()
+        })
+        .get(code)
+        .map_or("", String::as_str)
+}
 
 /// BCP 47 and POSIX locale tags, including `uk-UA`, `uk_UA.UTF-8` and `pt_BR.UTF-8`.
 /// A catalog is chosen by the tag's primary language, so any `pt-*` tag selects `pt-BR`.
@@ -277,7 +343,11 @@ fn parse(source: &str) -> (Catalog<'_>, Vec<String>) {
 }
 
 fn catalog(language: &str) -> Option<&'static Catalog<'static>> {
-    LANGUAGES.iter().find(|l| l.code == language && !l.source.is_empty()).map(|l| l.catalog.get_or_init(|| parse(l.source).0))
+    LANGUAGES.iter().find(|l| l.code == language && !l.source.is_empty()).map(|l| {
+        l.catalog.get_or_init(|| {
+            if VISUAL_ORDER.contains(&l.code) { parse(visual_source(l.code)).0 } else { parse(l.source).0 }
+        })
+    })
 }
 
 pub fn tr<'a>(language: &str, source: &'a str) -> &'a str {

@@ -164,6 +164,7 @@ fn locale_and_saved_preference_resolution() {
         ("sv", &["sv", "sv-SE", "sv_SE.UTF-8", "SV-se", " sv-SE ", "sv-FI"]),
         ("hu", &["hu", "hu-HU", "hu_HU.UTF-8", "HU-hu", " hu-HU "]),
         ("tr", &["tr", "tr-TR", "tr_TR.UTF-8", "TR-tr", " tr-TR ", "tr-CY"]),
+        ("he", &["he", "he-IL", "he_IL.UTF-8", "HE-il", " he-IL "]),
         ("el", &["el", "el-GR", "el_GR.UTF-8", "EL-cy"]),
         ("zh", &["zh", "zh-CN"]),
     ] {
@@ -480,4 +481,24 @@ fn korean_ui_fonts_cover_the_language_picker_in_both_families() {
         missing
     });
     assert!(missing.is_empty(), "missing Korean picker glyphs: {}", missing.join(", "));
+}
+
+#[test]
+fn hebrew_is_served_in_display_order_with_keys_and_placeholders_intact() {
+    // egui has no bidi pass: the Hebrew catalog is reordered once so letters read right to left.
+    let open = tr("he", "Open");
+    assert_ne!(open, "Open", "Open has a Hebrew translation");
+    let logical = parse(include_str!("he.tsv")).0;
+    let source = logical.get(&("", "Open")).copied().unwrap_or_default();
+    assert_eq!(open, cadcraft_fonts::bidi::visual_order(source));
+    assert_eq!(open.chars().rev().collect::<String>(), source, "a pure Hebrew label is reversed");
+    // Mixed labels keep Latin runs (file formats) readable left to right.
+    let mixed = cadcraft_fonts::bidi::visual_order("צרף DWG...");
+    assert!(mixed.contains("DWG"), "{mixed}");
+    // Plural forms are reordered one by one and keep their placeholder.
+    let forms = with_language("he", || count(5, "{n} commit", "{n} commits"));
+    assert!(forms.contains('5'), "{forms}");
+    assert!(!forms.contains('{'), "{forms}");
+    // English and left-to-right catalogs are untouched.
+    assert_eq!(for_display("Layer 0"), "Layer 0");
 }
