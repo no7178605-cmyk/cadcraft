@@ -364,6 +364,13 @@ pub fn install_fonts(ctx: &egui::Context, language: &str) {
         {
             added.push(("system-arabic".into(), std::sync::Arc::new(egui::FontData::from_owned(bytes))));
         }
+        // עברית: an installed Hebrew face after the Latin ones (egui's bundled faces carry no
+        // Hebrew letters), in both families, for the Hebrew interface.
+        if language == "he"
+            && let Some(bytes) = hebrew_font().and_then(|p| read_capped(p, MAX_UI_FONT_BYTES))
+        {
+            added.push(("system-hebrew".into(), std::sync::Arc::new(egui::FontData::from_owned(bytes))));
+        }
     }
     let embedded: Vec<_> = cadcraft_fonts::CRAFT_FONTS.iter().collect();
     added.extend(
@@ -406,6 +413,9 @@ fn embedded_ui_faces<'a>(faces: &[&'a cadcraft_fonts::CraftFont], language: &str
     }
     if language == "ar" {
         out.extend(faces.iter().copied().filter(|f| f.style == "Regular" && f.scripts.contains(&"Arab")));
+    }
+    if language == "he" {
+        out.extend(faces.iter().copied().filter(|f| f.style == "Regular" && f.scripts.contains(&"Hebr")));
     }
     out
 }
@@ -493,6 +503,42 @@ pub fn arabic_font() -> Option<&'static std::path::Path> {
                         "/usr/share/fonts/TTF/DejaVuSans.ttf",
                         "/usr/share/fonts/truetype/amiri/Amiri-Regular.ttf",
                         "/usr/share/fonts/truetype/kacst/KacstOne.ttf",
+                    ]
+                };
+                candidates.iter().map(std::path::PathBuf::from).find(|p| p.is_file())
+            })
+            .as_deref()
+    }
+    #[cfg(target_arch = "wasm32")]
+    None
+}
+
+/// An installed font with Hebrew letters, for the עברית interface; fonts are never bundled
+/// (only looked for where the OS or common packages put them). Checked once.
+pub fn hebrew_font() -> Option<&'static std::path::Path> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static FOUND: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+        FOUND
+            .get_or_init(|| {
+                let candidates: &[&str] = if cfg!(target_os = "macos") {
+                    &["/System/Library/Fonts/ArialHB.ttc", "/System/Library/Fonts/Supplemental/Arial Hebrew.ttc", "/Library/Fonts/Arial Unicode.ttf"]
+                } else if cfg!(windows) {
+                    &[
+                        "C:\\Windows\\Fonts\\segoeui.ttf",
+                        "C:\\Windows\\Fonts\\arial.ttf",
+                        "C:\\Windows\\Fonts\\tahoma.ttf",
+                        "C:\\Windows\\Fonts\\david.ttf",
+                    ]
+                } else {
+                    &[
+                        "/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf",
+                        "/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf",
+                        "/usr/share/fonts/opentype/noto/NotoSansHebrew-Regular.ttf",
+                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+                        "/usr/share/fonts/truetype/culmus/DavidCLM-Medium.otf",
                     ]
                 };
                 candidates.iter().map(std::path::PathBuf::from).find(|p| p.is_file())
@@ -646,6 +692,7 @@ pub fn can_show(language: &str) -> bool {
     match language {
         "ko" => shows_hangul("ko"),
         "ar" => arabic_font().is_some() || embedded_script("Arab"),
+        "he" => hebrew_font().is_some() || embedded_script("Hebr"),
         l if l.starts_with("zh") => cjk_font().is_some() || embedded_script("Hans") || embedded_script("Hant"),
         _ => true,
     }

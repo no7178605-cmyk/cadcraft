@@ -256,10 +256,7 @@ pub fn for_display(text: &str) -> std::borrow::Cow<'_, str> {
 /// A fixed name in display order, computed once (language picker labels).
 fn display(code: &'static str, name: &'static str) -> &'static str {
     static NAMES: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
-    NAMES
-        .get_or_init(|| LANGUAGES.iter().map(|l| (l.code, for_display(l.name).into_owned())).collect())
-        .get(code)
-        .map_or(name, String::as_str)
+    NAMES.get_or_init(|| LANGUAGES.iter().map(|l| (l.code, for_display(l.name).into_owned())).collect()).get(code).map_or(name, String::as_str)
 }
 
 /// A catalog in display order: each translation (and each `|` plural form on its own) reordered,
@@ -343,11 +340,10 @@ fn parse(source: &str) -> (Catalog<'_>, Vec<String>) {
 }
 
 fn catalog(language: &str) -> Option<&'static Catalog<'static>> {
-    LANGUAGES.iter().find(|l| l.code == language && !l.source.is_empty()).map(|l| {
-        l.catalog.get_or_init(|| {
-            if VISUAL_ORDER.contains(&l.code) { parse(visual_source(l.code)).0 } else { parse(l.source).0 }
-        })
-    })
+    LANGUAGES
+        .iter()
+        .find(|l| l.code == language && !l.source.is_empty())
+        .map(|l| l.catalog.get_or_init(|| if VISUAL_ORDER.contains(&l.code) { parse(visual_source(l.code)).0 } else { parse(l.source).0 }))
 }
 
 pub fn tr<'a>(language: &str, source: &'a str) -> &'a str {
