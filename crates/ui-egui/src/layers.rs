@@ -461,7 +461,13 @@ fn row(
             } else if r.hovered() {
                 ui.painter().rect_filled(nr, 2.0, t.control_hover.gamma_multiply(0.5));
             }
-            ui.painter().text(pos2(nr.left() + 4.0, nr.center().y), egui::Align2::LEFT_CENTER, &name, crate::theme::body(), t.text);
+            ui.painter().text(
+                pos2(nr.left() + 4.0, nr.center().y),
+                egui::Align2::LEFT_CENTER,
+                crate::i18n::shape_ltr_runs(&name),
+                crate::theme::body(),
+                t.text,
+            );
             if r.clicked() {
                 st.selected = Some(name.clone());
             }

@@ -164,7 +164,23 @@ fn launch_app(addr: &str) -> std::io::Result<()> {
         let ok = std::process::Command::new("open").args(["-a", "CADCraft", "--args", "--control", port]).status()?.success();
         if ok { Ok(()) } else { Err(std::io::Error::other("could not open CADCraft (is it in Applications?)")) }
     } else {
-        Err(std::io::Error::other(format!("CADCraft is not running; start it with `cadcraft --control {port}`")))
+        // Windows and Linux: the app installed next to this CLI (the MSI puts both in one folder),
+        // else `cadcraft` on PATH. Its standard streams are detached: this process's stdout is the
+        // MCP channel, and the app keeps running after the CLI exits.
+        let name = if cfg!(windows) { "cadcraft.exe" } else { "cadcraft" };
+        let program = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
+            .filter(|p| p.is_file())
+            .unwrap_or_else(|| std::path::PathBuf::from(name));
+        std::process::Command::new(&program)
+            .args(["--control", port])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(drop)
+            .map_err(|e| std::io::Error::other(format!("could not start CADCraft ({e}); start it with `cadcraft --control {port}`")))
     }
 }
 
