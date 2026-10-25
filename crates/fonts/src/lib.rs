@@ -15,6 +15,7 @@
 
 pub mod bidi;
 mod complex;
+pub mod legacy_hebrew;
 mod mtext;
 mod stroke;
 pub mod subset;

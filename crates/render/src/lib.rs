@@ -1323,6 +1323,26 @@ fn text_style(d: &Drawing, name: &str) -> cadcraft_doc::TextStyle {
 /// Shape a TEXT / ATTRIB / ATTDEF with its style's font and generation flags.
 pub fn place_text_entity(d: &Drawing, t: &cadcraft_doc::Text, value: &str) -> (cadcraft_fonts::Shaped, Bounds2) {
     let ts = text_style(d, &t.style);
+    // Legacy Israeli Hebrew SHX fonts store Hebrew as keyboard keys and draw right to left (their
+    // `backwards` flag only mirrors their pre-mirrored glyphs): shown as Unicode Hebrew through
+    // the stroke font and its Hebrew fallback, the stored text untouched.
+    if cadcraft_fonts::legacy_hebrew::is_legacy_hebrew_font(&ts.font) {
+        let hebrew = cadcraft_fonts::legacy_hebrew::legacy_hebrew_text(value);
+        let (h, v) = align(t.halign, t.valign);
+        let p = cadcraft_fonts::TextParams {
+            insert: t.insert.xy(),
+            align_pt: t.align_pt.map(|p| p.xy()),
+            height: t.height,
+            rotation: t.rotation,
+            width_factor: t.width_factor,
+            oblique: t.oblique,
+            h,
+            v,
+            backwards: false,
+            upside_down: ts.upside_down,
+        };
+        return cadcraft_fonts::place(&cadcraft_fonts::TextFont::Stroke, &hebrew, &p);
+    }
     let font = cadcraft_fonts::TextFont::resolve(&ts.font);
     let (h, v) = align(t.halign, t.valign);
     let p = cadcraft_fonts::TextParams {
