@@ -145,7 +145,7 @@ impl Preference {
             Self::Arabic => "العربية",
             Self::Hungarian => "Magyar",
             Self::Turkish => "Türkçe",
-            Self::Hebrew => display("he", "עברית"),
+            Self::Hebrew => "עברית",
         }
     }
 
@@ -234,64 +234,10 @@ pub static LANGUAGES: [Language; 17] = [
     Language { code: "hu", name: "Magyar", source: include_str!("hu.tsv"), plural: plural_ko, plural_forms: 1, catalog: OnceLock::new() },
     // Turkish keeps a noun singular after a number ("3 commit"), so like Korean it has one form.
     Language { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), plural: plural_ko, plural_forms: 1, catalog: OnceLock::new() },
-    // עברית (Hebrew) is right-to-left. egui lays text out left to right with no bidi pass, so the
-    // catalog is served in display order (`cadcraft_fonts::bidi::visual_order`); Hebrew needs no
-    // joining, so reordering alone shows it correctly. Integer plurals: one (1), other.
+    // עברית (Hebrew) is right-to-left like العربية; an installed Hebrew font
+    // (`theme::hebrew_font`) covers its letters. Integer plurals: one (1), other.
     Language { code: "he", name: "עברית", source: include_str!("he.tsv"), plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
 ];
-
-/// Languages whose catalog is served in display (visual) order because egui has no bidi pass.
-const VISUAL_ORDER: &[&str] = &["he"];
-
-/// The display form of right-to-left text for egui: `text` reordered for display when it holds
-/// right-to-left characters, else unchanged.
-pub fn for_display(text: &str) -> std::borrow::Cow<'_, str> {
-    if cadcraft_fonts::bidi::has_rtl(text) {
-        std::borrow::Cow::Owned(cadcraft_fonts::bidi::visual_order(text))
-    } else {
-        std::borrow::Cow::Borrowed(text)
-    }
-}
-
-/// A fixed name in display order, computed once (language picker labels).
-fn display(code: &'static str, name: &'static str) -> &'static str {
-    static NAMES: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
-    NAMES.get_or_init(|| LANGUAGES.iter().map(|l| (l.code, for_display(l.name).into_owned())).collect()).get(code).map_or(name, String::as_str)
-}
-
-/// A catalog in display order: each translation (and each `|` plural form on its own) reordered,
-/// keys untouched. Built once per language from its logical-order source.
-fn visual_source(code: &str) -> &'static str {
-    static SOURCES: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
-    SOURCES
-        .get_or_init(|| {
-            LANGUAGES
-                .iter()
-                .filter(|l| VISUAL_ORDER.contains(&l.code))
-                .map(|l| {
-                    let mut out = String::with_capacity(l.source.len());
-                    for line in l.source.lines() {
-                        let columns: Vec<&str> = line.split('\t').collect();
-                        match columns.as_slice() {
-                            [context, key, value] if !line.starts_with('#') => {
-                                let forms: Vec<String> = value.split('|').map(|f| for_display(f).into_owned()).collect();
-                                out.push_str(context);
-                                out.push('\t');
-                                out.push_str(key);
-                                out.push('\t');
-                                out.push_str(&forms.join("|"));
-                            }
-                            _ => out.push_str(line),
-                        }
-                        out.push('\n');
-                    }
-                    (l.code, out)
-                })
-                .collect()
-        })
-        .get(code)
-        .map_or("", String::as_str)
-}
 
 /// BCP 47 and POSIX locale tags, including `uk-UA`, `uk_UA.UTF-8` and `pt_BR.UTF-8`.
 /// A catalog is chosen by the tag's primary language, so any `pt-*` tag selects `pt-BR`.
@@ -340,14 +286,89 @@ fn parse(source: &str) -> (Catalog<'_>, Vec<String>) {
 }
 
 fn catalog(language: &str) -> Option<&'static Catalog<'static>> {
-    LANGUAGES
-        .iter()
-        .find(|l| l.code == language && !l.source.is_empty())
-        .map(|l| l.catalog.get_or_init(|| if VISUAL_ORDER.contains(&l.code) { parse(visual_source(l.code)).0 } else { parse(l.source).0 }))
+    LANGUAGES.iter().find(|l| l.code == language && !l.source.is_empty()).map(|l| l.catalog.get_or_init(|| parse(l.source).0))
 }
 
 pub fn tr<'a>(language: &str, source: &'a str) -> &'a str {
+    if let Some(fixed) = shaped(language, "", source) {
+        return fixed;
+    }
+    tr_logical(language, source)
+}
+
+/// The translation as written in the catalog (logical order), for templates filled in later.
+fn tr_logical<'a>(language: &str, source: &'a str) -> &'a str {
     catalog(language).and_then(|c| c.get(&("", source))).copied().unwrap_or(source)
+}
+
+/// Languages whose labels pass through [`shape_ltr_runs`] before egui draws them.
+const RTL_RUN_FIX: &[&str] = &["he"];
+
+/// egui's text shaper (harfrust) lays out a line holding Hebrew as one right-to-left run, Latin
+/// letters and digits included, so "ל-PDF" would read "ל-FDP" and "12" would read "21". Each
+/// left-to-right run (ASCII letters and digits, with the spaces and `.+/:_,%` between them) is
+/// pre-reversed here so the shaper's reversal puts it back. Text without Hebrew letters is
+/// returned unchanged, so English fallbacks and drawing data are untouched.
+pub fn shape_ltr_runs(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.chars().any(|c| ('\u{0590}'..='\u{05FF}').contains(&c)) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let inner = |c: char| c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '+' | '/' | ':' | '_' | ',' | '%');
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while let Some(&c) = chars.get(i) {
+        if !c.is_ascii_alphanumeric() {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        // The run ends at its last letter or digit before a character outside it.
+        let mut end = i;
+        let mut j = i;
+        while let Some(&d) = chars.get(j) {
+            if !inner(d) {
+                break;
+            }
+            if d.is_ascii_alphanumeric() {
+                end = j;
+            }
+            j += 1;
+        }
+        out.extend(chars.get(i..=end).unwrap_or_default().iter().rev());
+        i = end + 1;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// The shaped form of a catalog label in a [`RTL_RUN_FIX`] language, computed once per language.
+fn shaped<'a>(language: &str, context: &'a str, source: &'a str) -> Option<&'a str> {
+    type Shaped = HashMap<&'static str, HashMap<(&'static str, &'static str), String>>;
+    static SHAPED: OnceLock<Shaped> = OnceLock::new();
+    if !RTL_RUN_FIX.contains(&language) {
+        return None;
+    }
+    SHAPED
+        .get_or_init(|| {
+            LANGUAGES
+                .iter()
+                .filter(|l| RTL_RUN_FIX.contains(&l.code))
+                .map(|l| {
+                    let labels = catalog(l.code)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|(key, value)| match shape_ltr_runs(value) {
+                            std::borrow::Cow::Owned(v) => Some((*key, v)),
+                            std::borrow::Cow::Borrowed(_) => None,
+                        })
+                        .collect();
+                    (l.code, labels)
+                })
+                .collect()
+        })
+        .get(language)
+        .and_then(|labels| labels.get(&(context, source)))
+        .map(String::as_str)
 }
 
 pub fn t(source: &str) -> &str {
@@ -357,6 +378,9 @@ pub fn t(source: &str) -> &str {
 /// Menu headings can differ from command or object labels (e.g. Czech Kótování / Kóta).
 /// Catalogs without a `menu` entry retain their ordinary translation.
 pub fn tr_menu<'a>(language: &str, source: &'a str) -> &'a str {
+    if let Some(fixed) = shaped(language, "menu", source) {
+        return fixed;
+    }
     catalog(language).and_then(|c| c.get(&("menu", source))).copied().unwrap_or_else(|| tr(language, source))
 }
 
@@ -367,7 +391,8 @@ pub fn menu(source: &str) -> &str {
 /// Named placeholders allow translations to reorder values. Inserted values are never looked up
 /// or substituted again, so a user's name containing `{n}` is preserved verbatim.
 pub fn format(source: &str, values: &[(&str, String)]) -> String {
-    let text = t(source);
+    let language = CURRENT.get();
+    let text = tr_logical(language, source);
     let mut result = String::with_capacity(text.len());
     let mut rest = text;
     while let Some((before, tail)) = rest.split_once('{') {
@@ -387,6 +412,9 @@ pub fn format(source: &str, values: &[(&str, String)]) -> String {
         rest = after;
     }
     result.push_str(rest);
+    if RTL_RUN_FIX.contains(&language) {
+        return shape_ltr_runs(&result).into_owned();
+    }
     result
 }
 

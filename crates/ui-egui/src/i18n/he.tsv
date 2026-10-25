@@ -2,7 +2,7 @@
 # License: MIT OR Apache-2.0 (the repository LICENSE-MIT and LICENSE-APACHE).
 # Written from CADCraft's English strings; no proprietary translations were copied.
 # UTF-8: context<TAB>English source<TAB>Hebrew translation, in logical (typing) order.
-# The app reorders it for display because egui has no bidi pass (see docs/localization.md).
+# Shown right to left by the app.
 # Empty context = ordinary label; @plural = one|other forms with {n}.
 # Keep command IDs, keywords, technology/product names and user data unchanged.
 	  Cancel  	  ביטול  

@@ -228,6 +228,11 @@ fn plural_rules_pick_the_cldr_form() {
     }
 }
 
+/// What a filled-in template shows: Hebrew passes through [`shape_ltr_runs`] for egui's shaper.
+fn shown(language: &str, text: String) -> String {
+    if RTL_RUN_FIX.contains(&language) { shape_ltr_runs(&text).into_owned() } else { text }
+}
+
 #[test]
 fn counts_and_templates_follow_each_catalog_and_keep_inserted_text() {
     for language in &LANGUAGES {
@@ -237,11 +242,14 @@ fn counts_and_templates_follow_each_catalog_and_keep_inserted_text() {
                     let form =
                         catalog(language.code).and_then(|c| c.get(&("@plural", one))).and_then(|forms| forms.split('|').nth((language.plural)(n)));
                     let expected = form.unwrap_or(if n == 1 { one } else { other }).replace("{n}", &n.to_string());
-                    assert_eq!(count(n, one, other), expected, "{}: {n}", language.code);
+                    assert_eq!(count(n, one, other), shown(language.code, expected), "{}: {n}", language.code);
                 }
             }
             // Inserted values are never looked up or substituted again.
-            assert_eq!(format("Current: {color}", &[("color", "{n} Open".into())]), t("Current: {color}").replace("{color}", "{n} Open"));
+            assert_eq!(
+                format("Current: {color}", &[("color", "{n} Open".into())]),
+                shown(language.code, tr_logical(language.code, "Current: {color}").replace("{color}", "{n} Open"))
+            );
             assert_eq!(format("{b}/{a}", &[("a", "А".into()), ("b", "Б".into())]), "Б/А");
         });
     }
@@ -484,21 +492,16 @@ fn korean_ui_fonts_cover_the_language_picker_in_both_families() {
 }
 
 #[test]
-fn hebrew_is_served_in_display_order_with_keys_and_placeholders_intact() {
-    // egui has no bidi pass: the Hebrew catalog is reordered once so letters read right to left.
-    let open = tr("he", "Open");
-    assert_ne!(open, "Open", "Open has a Hebrew translation");
-    let logical = parse(include_str!("he.tsv")).0;
-    let source = logical.get(&("", "Open")).copied().unwrap_or_default();
-    assert_eq!(open, cadcraft_fonts::bidi::visual_order(source));
-    assert_eq!(open.chars().rev().collect::<String>(), source, "a pure Hebrew label is reversed");
-    // Mixed labels keep Latin runs (file formats) readable left to right.
-    let mixed = cadcraft_fonts::bidi::visual_order("צרף DWG...");
-    assert!(mixed.contains("DWG"), "{mixed}");
-    // Plural forms are reordered one by one and keep their placeholder.
-    let forms = with_language("he", || count(5, "{n} commit", "{n} commits"));
-    assert!(forms.contains('5'), "{forms}");
-    assert!(!forms.contains('{'), "{forms}");
-    // English and left-to-right catalogs are untouched.
-    assert_eq!(for_display("Layer 0"), "Layer 0");
+fn hebrew_latin_runs_are_pre_reversed_for_the_right_to_left_shaper() {
+    // egui's shaper reverses a Hebrew line as a whole, so Latin and digit runs are pre-reversed.
+    assert_eq!(shape_ltr_runs("ייצא ל-PDF..."), "ייצא ל-FDP...");
+    assert_eq!(shape_ltr_runs("שמור כ-AutoCAD 2018"), "שמור כ-8102 DACotuA");
+    assert_eq!(shape_ltr_runs("הקש Ctrl+Shift+S"), "הקש S+tfihS+lrtC");
+    // Text without Hebrew (English fallbacks, user data) is untouched.
+    assert_eq!(shape_ltr_runs("Layer 12 (PDF)"), "Layer 12 (PDF)");
+    // Labels and filled-in templates go through it in Hebrew only.
+    assert_eq!(tr("he", "Export to PDF..."), shape_ltr_runs(tr_logical("he", "Export to PDF...")));
+    assert_eq!(tr("de", "Export to PDF..."), tr_logical("de", "Export to PDF..."));
+    let twelve = with_language("he", || count(12, "{n} commit", "{n} commits"));
+    assert!(twelve.contains("21"), "{twelve}");
 }

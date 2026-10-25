@@ -157,9 +157,6 @@ CADCraft's English strings. Do not copy proprietary localization resources.
 
 ## Hebrew
 
-Hebrew (`he`) covers the union of the existing catalogs. egui lays text out left to right without a
-bidi pass, so the Hebrew catalog is served in display order: each translation (and each plural
-form) goes through `cadcraft_fonts::bidi::visual_order` once when the catalog loads. Hebrew needs no
-letter joining, so reordering alone shows it correctly; Latin runs inside a label (DWG, PDF, Ctrl)
-stay left to right. The shell layout itself stays left to right. Windows' Segoe UI and Linux's
-DejaVu Sans carry the Hebrew letters. Plurals: one (1), other.
+Hebrew (`he`) covers the union of the existing catalogs, in logical (typing) order like العربية.
+Windows' Segoe UI and Linux's DejaVu Sans carry the Hebrew letters (`theme::hebrew_font`).
+Plurals: one (1), other.
